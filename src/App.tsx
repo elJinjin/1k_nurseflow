@@ -14,7 +14,6 @@ import {
   Plus, 
   ChevronLeft, 
   ChevronRight,
-  LogOut, 
   Search, 
   Heart, 
   Thermometer, 
@@ -31,13 +30,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged, 
-  signOut, 
-  User as FirebaseUser 
-} from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
+import { Camera } from '@capacitor/camera';
 import { 
   doc, 
   getDoc, 
@@ -53,9 +47,9 @@ import {
   getDocFromServer 
 } from 'firebase/firestore';
 import { format } from 'date-fns';
-import { auth, db } from './firebase';
+import { auth, db, signInAnonymous } from './firebase';
 import { cn } from './lib/utils';
-
+import { initializeMobileApp } from './mobile-config';
 // --- Types ---
 
 interface MedicationLog {
@@ -271,8 +265,7 @@ export default function App() {
 }
 
 function SmartNurseStation() {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [view, setView] = useState<'dashboard' | 'scanner' | 'details' | 'create' | 'edit' | 'search' | 'vitals' | 'medications' | 'administer' | 'profile' | 'add-schedule'>('dashboard');
   const [scannedId, setScannedId] = useState<string | null>(null);
   const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
@@ -284,18 +277,13 @@ function SmartNurseStation() {
   const [allPatients, setAllPatients] = useState<Patient[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [scannerStarting, setScannerStarting] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  // Auth check
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-      if (u) {
-        testConnection();
-      }
-    });
-    return () => unsubscribe();
+    testConnection();
+    initializeMobileApp();
+    signInAnonymous();
   }, []);
 
   const testConnection = async () => {
@@ -308,23 +296,6 @@ function SmartNurseStation() {
     }
   };
 
-  const handleLogin = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (err) {
-      setError("Login failed. Please try again.");
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      setView('dashboard');
-    } catch (err) {
-      setError("Logout failed.");
-    }
-  };
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -337,10 +308,8 @@ function SmartNurseStation() {
         console.error("Error fetching patients:", error);
       }
     };
-    if (user) {
-      fetchAll();
-    }
-  }, [user]);
+    fetchAll();
+  }, []);
 
   useEffect(() => {
     const fetchMedications = async () => {
@@ -398,7 +367,7 @@ function SmartNurseStation() {
   };
 
   const handleAdministerMedication = async (medData: any) => {
-    if (!currentPatient || !user) return;
+    if (!currentPatient) return;
     setLoading(true);
     const path = `patients/${currentPatient.id}/medicationLogs`;
     try {
@@ -406,8 +375,8 @@ function SmartNurseStation() {
       const newLog = {
         ...medData,
         administeredAt: serverTimestamp(),
-        administeredBy: user.uid,
-        administeredByName: user.displayName || user.email || 'Unknown Nurse',
+        administeredBy: 'local-nurse',
+        administeredByName: 'Nurse',
       };
       await setDoc(logRef, newLog);
       
@@ -481,17 +450,67 @@ function SmartNurseStation() {
     }
   };
 
-  const startScanner = () => {
-    setView('scanner');
-    setIsScanning(true);
+  const startScanner = async () => {
+    setError(null);
+    setScannerStarting(true);
+
+    try {
+      // Request camera permission first on native
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const current = await Camera.checkPermissions();
+          console.log('Camera permissions check:', current);
+          
+          if (current.camera !== 'granted') {
+            console.log('Requesting camera permission...');
+            const requested = await Camera.requestPermissions({ permissions: ['camera'] });
+            console.log('Permission request result:', requested);
+            
+            if (requested.camera !== 'granted') {
+              setError('Camera permission denied. Please go to Settings > Permissions and allow Camera access.');
+              setScannerStarting(false);
+              return;
+            }
+          }
+        } catch (permError) {
+          console.error('Permission error on native:', permError);
+          setError('Cannot access camera. Please check permissions in Settings.');
+          setScannerStarting(false);
+          return;
+        }
+      } else {
+        // Web: Test camera access
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: 'environment' } },
+            audio: false,
+          });
+          stream.getTracks().forEach(track => track.stop());
+        } catch (webErr) {
+          console.error('Web camera error:', webErr);
+          setError('Camera access denied. Please allow camera access to scan QR codes.');
+          setScannerStarting(false);
+          return;
+        }
+      }
+
+      // Permission granted, show scanner
+      setView('scanner');
+      setIsScanning(true);
+    } catch (err) {
+      console.error('Unexpected scanner error:', err);
+      setError('Failed to start camera. Please try again.');
+      setScannerStarting(false);
+    }
   };
 
   const stopScanner = () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
+    setScannerStarting(false);
+    if (scannerRef.current?.isScanning) {
       scannerRef.current.stop().then(() => {
         scannerRef.current?.clear();
         setIsScanning(false);
-      }).catch(err => console.error(err));
+      }).catch(err => console.error('Scanner stop error:', err));
     } else {
       setIsScanning(false);
     }
@@ -500,46 +519,86 @@ function SmartNurseStation() {
   // Scanner lifecycle
   useEffect(() => {
     let html5QrCode: Html5Qrcode | null = null;
+    let cancelled = false;
 
     if (view === 'scanner' && isScanning) {
-      const timer = setTimeout(() => {
-        const element = document.getElementById("reader");
-        if (element) {
-          html5QrCode = new Html5Qrcode("reader");
-          scannerRef.current = html5QrCode;
-          html5QrCode.start(
-            { facingMode: "environment" },
-            { 
-              fps: 30, 
-              qrbox: (viewWidth, viewHeight) => {
-                const minEdge = Math.min(viewWidth, viewHeight);
-                // Larger box for better recognition of small/large QRs
-                const qrboxSize = Math.max(220, Math.floor(minEdge * 0.8));
-                return { width: qrboxSize, height: qrboxSize };
-              },
-              aspectRatio: 1.0,
-              // @ts-ignore - experimental feature in some versions
-              useBarCodeDetectorIfSupported: true,
-            },
-            (decodedText) => {
-              setIsScanning(false);
-              handlePatientLookup(decodedText);
-            },
-            () => {}
-          ).catch(err => {
-            console.error("Scanner start error:", err);
-            setError("Camera access denied or error.");
-            setIsScanning(false);
-          });
+      const initializeScanner = async () => {
+        // Wait a moment for DOM to be ready
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        let retries = 0;
+        const maxRetries = 3;
+        
+        while (retries < maxRetries && !cancelled) {
+          const element = document.getElementById("reader");
+          if (element) {
+            try {
+              console.log('Initializing Html5Qrcode scanner...');
+              html5QrCode = new Html5Qrcode("reader");
+              scannerRef.current = html5QrCode;
+
+              const scanConfig = {
+                fps: 30,
+                qrbox: { width: 200, height: 200 },
+              };
+
+              console.log('Starting camera with config:', scanConfig);
+              
+              await html5QrCode.start(
+                { facingMode: "environment" },
+                scanConfig,
+                (decodedText) => {
+                  console.log('QR code decoded:', decodedText);
+                  if (cancelled) return;
+                  setIsScanning(false);
+                  setScannerStarting(false);
+                  handlePatientLookup(decodedText);
+                },
+                () => {} // error callback (ignored)
+              );
+
+              console.log('Scanner started successfully');
+              if (!cancelled) setScannerStarting(false);
+              return; // Success
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+              console.error('Scanner start error (attempt ' + (retries + 1) + '):', errorMsg);
+              
+              if (!cancelled) {
+                setError(`Camera access failed: ${errorMsg}. Please check permissions and try again.`);
+                setIsScanning(false);
+                setScannerStarting(false);
+              }
+              return;
+            }
+          }
+          
+          // Element not found, retry
+          retries++;
+          console.warn(`Reader element not found, retrying... (${retries}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
-      }, 500);
+        
+        if (!cancelled && retries >= maxRetries) {
+          console.error('Failed to find reader element after retries');
+          setError('Scanner failed to load. Please go back and try again.');
+          setIsScanning(false);
+          setScannerStarting(false);
+        }
+      };
+
+      void initializeScanner();
 
       return () => {
-        clearTimeout(timer);
-        if (html5QrCode && html5QrCode.isScanning) {
-          html5QrCode.stop().then(() => {
-            html5QrCode?.clear();
-          }).catch(err => console.error("Scanner stop error:", err));
+        cancelled = true;
+        setScannerStarting(false);
+        if (html5QrCode?.isScanning) {
+          html5QrCode.stop()
+            .then(() => {
+              html5QrCode?.clear();
+              console.log('Scanner stopped');
+            })
+            .catch(err => console.error('Scanner stop error:', err));
         }
       };
     }
@@ -625,20 +684,6 @@ function SmartNurseStation() {
     );
   }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mb-8">
-          <ShieldAlert className="w-10 h-10 text-blue-600" />
-        </div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2 font-sans">Nurse Station</h1>
-        <p className="text-slate-500 mb-8 max-w-xs">Secure access to patient records and HIMS management.</p>
-        <Button onClick={handleLogin} className="w-full max-w-xs py-4 text-lg">
-          Sign in with Google
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
@@ -653,9 +698,6 @@ function SmartNurseStation() {
             <span className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">Station Alpha</span>
           </div>
         </div>
-        <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
-          <LogOut className="w-5 h-5" />
-        </button>
       </header>
 
       <main className="p-6 max-w-lg mx-auto">
@@ -688,7 +730,7 @@ function SmartNurseStation() {
                   </div>
                   <div>
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Patients</div>
-                    <div className="text-xl font-bold text-slate-900">{allPatients.length > 0 ? allPatients.length : '12'} Active</div>
+                    <div className="text-xl font-bold text-slate-900">{allPatients.length} Active</div>
                   </div>
                 </Card>
                 <Card className="p-5 flex flex-col items-center text-center gap-3 bg-white border-none shadow-sm">
@@ -712,10 +754,6 @@ function SmartNurseStation() {
                   >
                     <Search className="w-5 h-5 text-slate-400" />
                     Manual Patient Search
-                  </Button>
-                  <Button variant="outline" className="w-full justify-start py-4 px-5 rounded-2xl border-slate-100 bg-white hover:bg-slate-50 transition-all">
-                    <ShieldAlert className="w-5 h-5 text-slate-400" />
-                    Emergency Protocol
                   </Button>
                 </div>
               </div>
@@ -756,36 +794,36 @@ function SmartNurseStation() {
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black z-50 flex flex-col"
             >
-              <div className="p-6 flex items-center justify-between text-white">
-                <button onClick={() => { stopScanner(); setView('dashboard'); }} className="p-2">
+              <div className="px-4 py-5 flex items-center justify-between text-white bg-black/40 backdrop-blur-sm">
+                <button onClick={() => { stopScanner(); setView('dashboard'); }} className="p-2 rounded-full hover:bg-white/10 transition-colors">
                   <ChevronLeft className="w-8 h-8" />
                 </button>
                 <span className="font-bold">Scan Patient QR</span>
                 <div className="w-8" />
               </div>
-              <div className="flex-1 flex items-center justify-center relative">
-                <div id="reader" className="w-full max-w-sm overflow-hidden rounded-3xl border-2 border-blue-500/50 min-h-[300px] bg-slate-900/50" />
-                <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                  <div className="w-64 h-64 border-2 border-white/20 rounded-3xl" />
-                </div>
-              </div>
-              <div className="p-10 text-center text-white/60 text-sm flex flex-col gap-4">
-                <p>Align the patient's QR code within the frame to scan.</p>
-                <div className="flex justify-center">
-                  <Button 
-                    variant="outline" 
-                    className="border-white/20 text-white hover:bg-white/10"
-                    onClick={() => {
-                      const id = prompt("Enter Patient ID manually:");
-                      if (id) {
-                        stopScanner();
-                        handlePatientLookup(id);
-                      }
-                    }}
-                  >
-                    Enter ID Manually
-                  </Button>
-                </div>
+              <div className="flex-1 flex flex-col items-center justify-center relative px-4 pb-4 gap-4">
+                <div id="reader" className="w-full max-w-2xl h-[50vh] max-h-[450px] min-h-[300px] overflow-hidden rounded-3xl border-2 border-blue-400/70 bg-slate-900/70 shadow-2xl" />
+                {scannerStarting && (
+                  <div className="absolute inset-0 bg-black/45 flex items-center justify-center rounded-3xl mx-4 my-4">
+                    <div className="flex items-center gap-3 text-white bg-black/50 px-4 py-3 rounded-2xl border border-white/10">
+                      <Activity className="w-5 h-5 animate-spin" />
+                      <span className="text-sm font-medium">Starting camera...</span>
+                    </div>
+                  </div>
+                )}
+                <Button 
+                  variant="outline" 
+                  className="border-white/20 text-white hover:bg-white/10 mt-2"
+                  onClick={() => {
+                    const id = prompt("Enter Patient ID manually:");
+                    if (id) {
+                      stopScanner();
+                      handlePatientLookup(id);
+                    }
+                  }}
+                >
+                  Enter ID Manually
+                </Button>
               </div>
             </motion.div>
           )}
@@ -1287,14 +1325,10 @@ function SmartNurseStation() {
 
               <Card className="p-8 bg-white border-none shadow-sm text-center">
                 <div className="w-24 h-24 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-100 mx-auto mb-6">
-                  {user?.photoURL ? (
-                    <img src={user.photoURL} alt="Profile" className="w-full h-full rounded-3xl object-cover" referrerPolicy="no-referrer" />
-                  ) : (
-                    <User className="w-12 h-12" />
-                  )}
+                  <User className="w-12 h-12" />
                 </div>
-                <h4 className="text-2xl font-bold text-slate-900">{user?.displayName || 'Nurse User'}</h4>
-                <p className="text-slate-500 font-medium mb-6">{user?.email}</p>
+                <h4 className="text-2xl font-bold text-slate-900">Nurse User</h4>
+                <p className="text-slate-500 font-medium mb-6">Local Session</p>
                 
                 <div className="grid grid-cols-2 gap-4 mb-8">
                   <div className="bg-slate-50 p-4 rounded-2xl">
@@ -1307,10 +1341,6 @@ function SmartNurseStation() {
                   </div>
                 </div>
 
-                <Button onClick={handleLogout} variant="danger" className="w-full py-4 rounded-2xl flex items-center justify-center gap-2">
-                  <LogOut className="w-5 h-5" />
-                  Sign Out
-                </Button>
               </Card>
 
               <div className="space-y-4">

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NurseFlow</string>
+    <string name="title_activity_main">NurseFlow</string>
+    <string name="package_name">com.nurseflow.app</string>
+    <string name="custom_url_scheme">com.nurseflow.app</string>
+</resources>

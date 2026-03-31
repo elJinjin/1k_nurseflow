@@ -1,0 +1,15 @@
+{
+  "appId": "com.nurseflow.app",
+  "appName": "NurseFlow",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 3000,
+      "backgroundColor": "#1f2937",
+      "showSpinner": true
+    }
+  }
+}
