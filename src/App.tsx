@@ -695,6 +695,10 @@ function SmartNurseStation() {
       };
       await setDoc(doc(db, 'patients', scannedId), newPatient);
       setCurrentPatient(newPatient);
+      setRecentScans(prev => {
+        const filtered = prev.filter(p => p.id !== newPatient.id);
+        return [newPatient, ...filtered].slice(0, 4);
+      });
       setView('details');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, path);
@@ -750,7 +754,7 @@ function SmartNurseStation() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
       {/* Header */}
-      <header className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-10 flex items-center justify-between">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-100 px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-100">
             <Activity className="w-6 h-6" />
@@ -762,7 +766,7 @@ function SmartNurseStation() {
         </div>
       </header>
 
-      <main className="p-6 max-w-lg mx-auto">
+      <main className="pt-20 p-6 max-w-lg mx-auto">
         <AnimatePresence mode="wait">
           {view === 'dashboard' && (
             <motion.div
@@ -1722,12 +1726,12 @@ function SmartNurseStation() {
                       <label className="block text-xs font-bold text-slate-500 mb-1">Full Name</label>
                       <input name="fullName" required defaultValue={currentPatient?.fullName} className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="John Doe" />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="sm:col-span-2">
                         <label className="block text-xs font-bold text-slate-500 mb-1">Date of Birth</label>
                         <input name="dob" type="date" required defaultValue={currentPatient?.dateOfBirth} className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
                       </div>
-                      <div>
+                      <div className="sm:col-span-1">
                         <label className="block text-xs font-bold text-slate-500 mb-1">Gender</label>
                         <select name="gender" defaultValue={currentPatient?.gender} className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                           <option>Male</option>
