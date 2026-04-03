@@ -271,6 +271,11 @@ function SmartNurseStation() {
   const [currentPatient, setCurrentPatient] = useState<Patient | null>(null);
   const [medicationLogs, setMedicationLogs] = useState<MedicationLog[]>([]);
   const [scheduledMedications, setScheduledMedications] = useState<ScheduledMedication[]>([]);
+
+  // Feature flags: hide history/medications blocks on patient profile
+  const HIDE_PROFILE_HISTORY = true;
+  const HIDE_PROFILE_MEDICATIONS = true;
+  const HIDE_QUICK_ACTIONS = true;
   const [interactionAlert, setInteractionAlert] = useState<{ severity: 'high' | 'medium' | 'low', message: string } | null>(null);
   const [recentScans, setRecentScans] = useState<Patient[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -801,19 +806,21 @@ function SmartNurseStation() {
                 </Card>
               </div>
 
-              <div className="space-y-4">
-                <h4 className="font-bold text-slate-400 text-xs uppercase tracking-widest px-1">Quick Actions</h4>
-                <div className="space-y-3">
-                  <Button 
-                    variant="outline" 
-                    className="w-full justify-start py-4 px-5 rounded-2xl border-slate-100 bg-white hover:bg-slate-50 transition-all"
-                    onClick={() => setView('search')}
-                  >
-                    <Search className="w-5 h-5 text-slate-400" />
-                    Manual Patient Search
-                  </Button>
+              {!HIDE_QUICK_ACTIONS && (
+                <div className="space-y-4">
+                  <h4 className="font-bold text-slate-400 text-xs uppercase tracking-widest px-1">Quick Actions</h4>
+                  <div className="space-y-3">
+                    <Button 
+                      variant="outline" 
+                      className="w-full justify-start py-4 px-5 rounded-2xl border-slate-100 bg-white hover:bg-slate-50 transition-all"
+                      onClick={() => setView('search')}
+                    >
+                      <Search className="w-5 h-5 text-slate-400" />
+                      Manual Patient Search
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {recentScans.length > 0 && (
                 <div className="space-y-4">
@@ -1061,7 +1068,9 @@ function SmartNurseStation() {
                 <div className="flex items-center justify-between px-1">
                   <h4 className="font-bold text-slate-400 text-[10px] uppercase tracking-widest">Latest Vitals</h4>
                   <div className="flex gap-3">
-                    <span className="text-[10px] text-blue-600 font-bold uppercase tracking-widest cursor-pointer">History</span>
+                    {!HIDE_PROFILE_HISTORY && (
+                      <span className="text-[10px] text-blue-600 font-bold uppercase tracking-widest cursor-pointer">History</span>
+                    )}
                     <span 
                       onClick={() => setView('vitals')}
                       className="text-[10px] text-green-600 font-bold uppercase tracking-widest cursor-pointer"
@@ -1134,32 +1143,33 @@ function SmartNurseStation() {
                 </Card>
               </div>
 
-              {/* Medications */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between px-1">
-                  <h4 className="font-bold text-slate-400 text-[10px] uppercase tracking-widest">Medications</h4>
-                  <span 
-                    onClick={() => setView('medications')}
-                    className="text-[10px] text-blue-600 font-bold uppercase tracking-widest cursor-pointer"
-                  >
-                    View Schedule
-                  </span>
+              {!HIDE_PROFILE_MEDICATIONS && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1">
+                    <h4 className="font-bold text-slate-400 text-[10px] uppercase tracking-widest">Medications</h4>
+                    <span 
+                      onClick={() => setView('medications')}
+                      className="text-[10px] text-blue-600 font-bold uppercase tracking-widest cursor-pointer"
+                    >
+                      View Schedule
+                    </span>
+                  </div>
+                  {currentPatient.currentMedications.length > 0 ? (
+                    <Card className="p-5 bg-white border-none shadow-sm space-y-3">
+                      {currentPatient.currentMedications.map((med, i) => (
+                        <div key={i} className="flex items-center gap-3 text-sm">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full" />
+                          <span className="font-medium text-slate-700">{med}</span>
+                        </div>
+                      ))}
+                    </Card>
+                  ) : (
+                    <Card className="p-5 bg-white border-none shadow-sm text-center py-8">
+                      <p className="text-xs text-slate-400">No active medications recorded</p>
+                    </Card>
+                  )}
                 </div>
-                {currentPatient.currentMedications.length > 0 ? (
-                  <Card className="p-5 bg-white border-none shadow-sm space-y-3">
-                    {currentPatient.currentMedications.map((med, i) => (
-                      <div key={i} className="flex items-center gap-3 text-sm">
-                        <div className="w-2 h-2 bg-blue-400 rounded-full" />
-                        <span className="font-medium text-slate-700">{med}</span>
-                      </div>
-                    ))}
-                  </Card>
-                ) : (
-                  <Card className="p-5 bg-white border-none shadow-sm text-center py-8">
-                    <p className="text-xs text-slate-400">No active medications recorded</p>
-                  </Card>
-                )}
-              </div>
+              )}
 
               <Button onClick={startScanner} className="w-full py-4 mt-4 rounded-2xl shadow-lg shadow-blue-100">
                 Scan Next Patient
