@@ -1,22 +1,23 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+// Local fallback for Firebase when running in a purely local/offline mode.
+// We keep the `db`, `auth`, and `signInAnonymous` exports so the rest of
+// the app can remain mostly unchanged while using the local shim.
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth();
+export const db: any = {}; // placeholder — localFirestore functions ignore this arg
 
-/**
- * Sign in anonymously to Firebase
- */
+export const auth: any = {
+  currentUser: undefined
+};
+
 export const signInAnonymous = async () => {
-  try {
-    if (!auth.currentUser) {
-      await signInAnonymously(auth);
-      console.log('Signed in anonymously');
-    }
-  } catch (error) {
-    console.error('Anonymous sign-in error:', error);
+  if (!auth.currentUser) {
+    auth.currentUser = {
+      uid: 'local-anon',
+      email: null,
+      emailVerified: undefined,
+      isAnonymous: true,
+      tenantId: null,
+      providerData: [],
+    };
+    console.log('Signed in anonymously (local)');
   }
 };

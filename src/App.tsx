@@ -45,7 +45,7 @@ import {
   limit,
   serverTimestamp, 
   getDocFromServer 
-} from 'firebase/firestore';
+} from './lib/localFirestore';
 import { format } from 'date-fns';
 import { auth, db, signInAnonymous } from './firebase';
 import { cn } from './lib/utils';
