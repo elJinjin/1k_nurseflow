@@ -504,16 +504,25 @@ function SmartNurseStation() {
     }
   };
 
-  const stopScanner = () => {
+  const stopScanner = async () => {
     setScannerStarting(false);
-    if (scannerRef.current?.isScanning) {
-      scannerRef.current.stop().then(() => {
-        scannerRef.current?.clear();
-        setIsScanning(false);
-      }).catch(err => console.error('Scanner stop error:', err));
-    } else {
-      setIsScanning(false);
+    const sc = scannerRef.current as any;
+    if (sc) {
+      try {
+        if (typeof sc.stop === 'function') {
+          await sc.stop();
+        }
+      } catch (err) {
+        console.error('Scanner stop error:', err);
+      }
+      try {
+        if (typeof sc.clear === 'function') sc.clear();
+      } catch (err) {
+        console.error('Scanner clear error:', err);
+      }
+      scannerRef.current = null;
     }
+    setIsScanning(false);
   };
 
   // Scanner lifecycle
@@ -547,14 +556,24 @@ function SmartNurseStation() {
               await html5QrCode.start(
                 { facingMode: "environment" },
                 scanConfig,
-                (decodedText) => {
+                async (decodedText) => {
                   console.log('QR code decoded:', decodedText);
                   if (cancelled) return;
+                  try {
+                    await html5QrCode.stop();
+                  } catch (e) {
+                    console.error('Error stopping scanner after decode:', e);
+                  }
+                  try { html5QrCode.clear(); } catch (e) {}
+                  scannerRef.current = null;
                   setIsScanning(false);
                   setScannerStarting(false);
                   handlePatientLookup(decodedText);
                 },
-                () => {} // error callback (ignored)
+                (err) => {
+                  // scanning error callback (log for debugging)
+                  console.debug('Html5Qrcode scan error:', err);
+                }
               );
 
               console.log('Scanner started successfully');
@@ -592,13 +611,16 @@ function SmartNurseStation() {
       return () => {
         cancelled = true;
         setScannerStarting(false);
-        if (html5QrCode?.isScanning) {
-          html5QrCode.stop()
-            .then(() => {
-              html5QrCode?.clear();
+        if (html5QrCode) {
+          (async () => {
+            try {
+              if (typeof html5QrCode.stop === 'function') await html5QrCode.stop();
+              if (typeof html5QrCode.clear === 'function') html5QrCode.clear();
               console.log('Scanner stopped');
-            })
-            .catch(err => console.error('Scanner stop error:', err));
+            } catch (err) {
+              console.error('Scanner stop error (cleanup):', err);
+            }
+          })();
         }
       };
     }
@@ -671,6 +693,41 @@ function SmartNurseStation() {
       setView('details');
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, path);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePatient = async (patientData: Partial<Patient>) => {
+    if (!currentPatient) return;
+    setLoading(true);
+    const path = `patients/${currentPatient.id}`;
+    try {
+      const updatedFields: Partial<Patient> = {
+        fullName: patientData.fullName ?? currentPatient.fullName,
+        dateOfBirth: patientData.dateOfBirth ?? currentPatient.dateOfBirth,
+        gender: (patientData.gender as any) ?? currentPatient.gender,
+        bloodType: patientData.bloodType ?? currentPatient.bloodType,
+        allergies: patientData.allergies ?? currentPatient.allergies,
+        chronicConditions: patientData.chronicConditions ?? currentPatient.chronicConditions,
+        currentMedications: patientData.currentMedications ?? currentPatient.currentMedications,
+        emergencyContact: patientData.emergencyContact ?? currentPatient.emergencyContact,
+        updatedAt: serverTimestamp(),
+      };
+
+      await updateDoc(doc(db, 'patients', currentPatient.id), updatedFields);
+
+      const updatedPatient: Patient = {
+        ...currentPatient,
+        ...updatedFields,
+      } as Patient;
+
+      setCurrentPatient(updatedPatient);
+      setAllPatients(prev => prev.map(p => p.id === updatedPatient.id ? updatedPatient : p));
+      setRecentScans(prev => prev.map(p => p.id === updatedPatient.id ? updatedPatient : p));
+      setView('details');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, path);
     } finally {
       setLoading(false);
     }
@@ -1348,7 +1405,7 @@ function SmartNurseStation() {
                 <Card className="p-5 bg-white border-none shadow-sm space-y-4">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-500">App Version</span>
-                    <span className="font-bold text-slate-900">v2.1.0</span>
+                    <span className="font-bold text-slate-900">v1.1.5</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-500">Last Sync</span>
@@ -1625,7 +1682,7 @@ function SmartNurseStation() {
                 onSubmit={(e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
-                  handleCreatePatient({
+                  const payload = {
                     fullName: formData.get('fullName') as string,
                     dateOfBirth: formData.get('dob') as string,
                     gender: formData.get('gender') as any,
@@ -1638,7 +1695,13 @@ function SmartNurseStation() {
                       relationship: formData.get('ecRel') as string,
                       phone: formData.get('ecPhone') as string,
                     }
-                  });
+                  };
+
+                  if (view === 'edit') {
+                    handleUpdatePatient(payload);
+                  } else {
+                    handleCreatePatient(payload);
+                  }
                 }}
                 className="space-y-6"
               >
